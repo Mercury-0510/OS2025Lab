@@ -267,10 +267,19 @@ int fork(void) {
   return pid;
 }
 
+static const char *procstate_name[] = {
+    [UNUSED]   = "unused",
+    [SLEEPING] = "sleeping",
+    [RUNNABLE] = "runnable",
+    [RUNNING]  = "running",
+    [ZOMBIE]   = "zombie",
+};
+
 // Pass p's abandoned children to init.
 // Caller must hold p->lock.
 void reparent(struct proc *p) {
   struct proc *pp;
+  int child_num = 0;
 
   for (pp = proc; pp < &proc[NPROC]; pp++) {
     // this code uses pp->parent without holding pp->lock.
@@ -281,6 +290,8 @@ void reparent(struct proc *p) {
       // pp->parent can't change between the check and the acquire()
       // because only the parent changes it, and we're the parent.
       acquire(&pp->lock);
+      // 打印子进程信息
+      exit_info("proc %d exit, child %d, pid %d, name %s, state %s\n", p->pid, child_num++, pp->pid, pp->name, procstate_name[pp->state]);
       pp->parent = initproc;
       // we should wake up init here, but that would require
       // initproc->lock, which would be a deadlock, since we hold
@@ -337,7 +348,8 @@ void exit(int status) {
   acquire(&original_parent->lock);
 
   acquire(&p->lock);
-
+  // 打印父进程信息
+  exit_info("proc %d exit, parent pid %d, name %s, state %s\n", p->pid, original_parent->pid, original_parent->name, procstate_name[original_parent->state]);
   // Give any children to init.
   reparent(p);
 
@@ -356,7 +368,7 @@ void exit(int status) {
 
 // Wait for a child process to exit and return its pid.
 // Return -1 if this process has no children.
-int wait(uint64 addr) {
+int wait(uint64 addr, int flag) {
   struct proc *np;
   int havekids, pid;
   struct proc *p = myproc();
@@ -400,6 +412,12 @@ int wait(uint64 addr) {
       return -1;
     }
 
+    // flag==1 means no wait
+    if (flag == 1) {
+      release(&p->lock);
+      return -1;
+    }
+
     // Wait for a child to exit.
     sleep(p, &p->lock);  // DOC: wait-sleep
   }
@@ -428,6 +446,10 @@ void scheduler(void) {
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
+        if (c->yield_from) {
+          printf("Next runnable process pid is %d and user pc is %p\n", p->pid, (void *)p->trapframe->epc);
+          c->yield_from = 0;
+        }
         p->state = RUNNING;
         c->proc = p;
         swtch(&c->context, &p->context);
@@ -472,8 +494,14 @@ void sched(void) {
 void yield(void) {
   struct proc *p = myproc();
   acquire(&p->lock);
+  struct cpu *c = mycpu();
+  printf("Save the context of the process to the memory region from address %p to %p\n",
+         (void *)&p->context, (void *)((char *)&p->context + sizeof(p->context)));
+  printf("Current running process pid is %d and user pc is %p\n", p->pid, (void *)p->trapframe->epc);
+  c->yield_from = p;
   p->state = RUNNABLE;
   sched();
+  c->yield_from = 0;
   release(&p->lock);
 }
 
