@@ -9,6 +9,8 @@
 #include "riscv.h"
 #include "defs.h"
 
+#define CPUS 3  
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -19,24 +21,29 @@ struct run {
 };
 
 struct {
-  struct spinlock lock;
-  struct run *freelist;
+  struct spinlock lock[CPUS]; // 每个 CPU 的锁
+  struct run *freelist[CPUS];   // 每个 CPU 的空闲链表
 } kmem;
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  for (int i = 0; i < CPUS; i++) {
+    initlock(&kmem.lock[i], "kmem_lock_cpu");
+    kmem.freelist[i] = 0;
+  }
   freerange(end, (void*)PHYSTOP);
 }
 
 void
 freerange(void *pa_start, void *pa_end)
-{
+{ 
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  {
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -55,11 +62,34 @@ kfree(void *pa)
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
+  int cpu_id = ((uint64)pa / PGSIZE) % CPUS;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  acquire(&kmem.lock[cpu_id]);
+  r->next = kmem.freelist[cpu_id];
+  kmem.freelist[cpu_id] = r;
+  release(&kmem.lock[cpu_id]);
+}
+
+// 分配空闲链表
+struct run* 
+search_free(int cpu_id) {
+  struct run *r = 0;
+  int cnt = 0;
+  int limit = 100 * CPUS;
+  for(int i = 0; cnt < limit; i = (i+1)%CPUS, cnt++) {
+    if(kmem.freelist[i]) {
+      acquire(&kmem.lock[i]);
+      if(!kmem.freelist[i]) {
+        release(&kmem.lock[i]);
+        continue;
+      }
+      r = kmem.freelist[i];
+      kmem.freelist[i] = r->next;
+      release(&kmem.lock[i]);
+      break;
+    }
+  }
+  return r;
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -69,12 +99,19 @@ void *
 kalloc(void)
 {
   struct run *r;
+  int cpu_id = cpuid();
 
-  acquire(&kmem.lock);
-  r = kmem.freelist;
+  acquire(&kmem.lock[cpu_id]);
+  r = kmem.freelist[cpu_id];
+
   if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
+    kmem.freelist[cpu_id] = r->next;
+
+  release(&kmem.lock[cpu_id]);
+
+  if(!r) {
+    r = search_free(cpu_id);
+  }
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
