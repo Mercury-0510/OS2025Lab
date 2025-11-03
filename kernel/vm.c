@@ -243,6 +243,21 @@ void freewalk(pagetable_t pagetable) {
   kfree((void *)pagetable);
 }
 
+// 保存叶子节点
+void freewalk_keep_pages(pagetable_t pagetable) {
+  for (int i = 0; i < 512; i++) {
+    pte_t pte = pagetable[i];
+    if ((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+      uint64 child = PTE2PA(pte);
+      freewalk_keep_pages((pagetable_t)child);
+      pagetable[i] = 0;
+    } else if (pte & PTE_V) {
+      pagetable[i] = 0;
+    }
+  }
+  kfree((void *)pagetable);
+}
+
 // Free user memory pages,
 // then free page-table pages.
 void uvmfree(pagetable_t pagetable, uint64 sz) {
@@ -378,4 +393,37 @@ int test_pagetable() {
   uint64 gsatp = MAKE_SATP(kernel_pagetable);
   printf("test_pagetable: %d\n", satp != gsatp);
   return satp != gsatp;
+}
+
+// 为进程创建独立的内核页表（任务二）
+pagetable_t proc_kvminit() {
+  pagetable_t pagetable;
+
+  pagetable = (pagetable_t)kalloc();
+  if (pagetable == 0) return 0;
+  memset(pagetable, 0, PGSIZE);
+
+  if (mappages(pagetable, UART0, PGSIZE, UART0, PTE_R | PTE_W) != 0)
+    goto err;
+
+  if (mappages(pagetable, VIRTIO0, PGSIZE, VIRTIO0, PTE_R | PTE_W) != 0)
+    goto err;
+
+  if (mappages(pagetable, PLIC, 0x400000, PLIC, PTE_R | PTE_W) != 0)
+    goto err;
+
+  if (mappages(pagetable, KERNBASE, (uint64)etext - KERNBASE, KERNBASE, PTE_R | PTE_X) != 0)
+    goto err;
+
+  if (mappages(pagetable, (uint64)etext, PHYSTOP - (uint64)etext, (uint64)etext, PTE_R | PTE_W) != 0)
+    goto err;
+
+  if (mappages(pagetable, TRAMPOLINE, PGSIZE, (uint64)trampoline, PTE_R | PTE_X) != 0)
+    goto err;
+
+  return pagetable;
+
+err:
+  freewalk(pagetable);
+  return 0;
 }

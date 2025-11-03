@@ -9,6 +9,8 @@
 
 static int loadseg(pde_t *pgdir, uint64 addr, struct inode *ip, uint offset, uint sz);
 
+void vmprint(pagetable_t pagetable);
+
 int exec(char *path, char **argv) {
   char *s, *last;
   int i, off;
@@ -97,6 +99,9 @@ int exec(char *path, char **argv) {
   p->trapframe->sp = sp;          // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
 
+  if(p->pid == 1)
+    vmprint(p->pagetable);
+  
   return argc;  // this ends up in a0, the first argument to main(argc, argv)
 
 bad:
@@ -129,4 +134,47 @@ static int loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offs
   }
 
   return 0;
+}
+
+// 打印页表
+void vmprint(pagetable_t pagetable){
+  printf("page table %p\n", pagetable);
+
+  // There are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V) {
+      uint64 child = PTE2PA(pte);
+      printf("||idx: %d: pa: %p, flags: ----\n", i, child);
+      // If this PTE points to a lower-level page table (not a leaf)
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0) {
+        // Recursively print the next level page table
+        for(int j = 0; j < 512; j++){
+          pte_t pte2 = ((pagetable_t)child)[j];
+          if(pte2 & PTE_V) {
+            uint64 child2 = PTE2PA(pte2);
+            printf("||  ||idx: %d: pa: %p, flags: ----\n", j, child2);
+            // If this PTE points to a lower-level page table (not a leaf)
+            if((pte2 & (PTE_R|PTE_W|PTE_X)) == 0) {
+              // Print the third level page table
+              for(int k = 0; k < 512; k++){
+                pte_t pte3 = ((pagetable_t)child2)[k];
+                uint64 va = ((uint64)i << PXSHIFT(2)) | ((uint64)j << PXSHIFT(1)) | ((uint64)k << PXSHIFT(0));
+                if(pte3 & PTE_V) {
+                  char flag[5];
+                  flag[0] = (pte3 & PTE_R) ? 'r' : '-';
+                  flag[1] = (pte3 & PTE_W) ? 'w' : '-';
+                  flag[2] = (pte3 & PTE_X) ? 'x' : '-';
+                  flag[3] = (pte3 & PTE_U) ? 'u' : '-';
+                  flag[4] = '\0';
+                  uint64 child3 = PTE2PA(pte3);
+                  printf("||  ||  ||idx: %d: va: %p -> pa: %p, flags: %s\n", k, va, child3, flag);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }

@@ -6,6 +6,8 @@
 #include "proc.h"
 #include "defs.h"
 
+extern pagetable_t kernel_pagetable;
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -37,6 +39,7 @@ void procinit(void) {
     uint64 va = KSTACK((int)(p - proc));
     kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
     p->kstack = va;
+    p->kstack_pa = (uint64)pa;  // 保存内核栈的物理地址
   }
   kvminithart();
 }
@@ -103,10 +106,27 @@ found:
     return 0;
   }
 
+  // Create a new kernel page table for the process
+  p->k_pagetable = proc_kvminit();
+  if (p->k_pagetable == 0) {
+    kfree((void*)p->trapframe);
+    release(&p->lock);
+    return 0;
+  }
+
+  // Map the kernel stack to the process's kernel page table
+  if (mappages(p->k_pagetable, p->kstack, PGSIZE, p->kstack_pa, PTE_R | PTE_W) != 0) {
+    freewalk(p->k_pagetable);
+    kfree((void*)p->trapframe);
+    release(&p->lock);
+    return 0;
+  }
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if (p->pagetable == 0) {
-    freeproc(p);
+    freewalk(p->k_pagetable);
+    kfree((void*)p->trapframe);
     release(&p->lock);
     return 0;
   }
@@ -126,6 +146,10 @@ found:
 static void freeproc(struct proc *p) {
   if (p->trapframe) kfree((void *)p->trapframe);
   p->trapframe = 0;
+  if (p->k_pagetable) {
+    freewalk_keep_pages(p->k_pagetable);
+  }
+  p->k_pagetable = 0;
   if (p->pagetable) proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
   p->sz = 0;
@@ -430,6 +454,13 @@ void scheduler(void) {
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // Switch to the process's kernel page table
+        if (p->k_pagetable) {
+          w_satp(MAKE_SATP(p->k_pagetable));
+          sfence_vma();
+        }
+
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
@@ -442,6 +473,9 @@ void scheduler(void) {
     }
 #if !defined(LAB_FS)
     if (found == 0) {
+      // No process to run, switch to global kernel page table
+      w_satp(MAKE_SATP(kernel_pagetable));
+      sfence_vma();
       intr_on();
       asm volatile("wfi");
     }
