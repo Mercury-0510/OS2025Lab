@@ -140,23 +140,21 @@ static int loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offs
 void vmprint(pagetable_t pagetable){
   printf("page table %p\n", pagetable);
 
-  // There are 2^9 = 512 PTEs in a page table.
+  // 512个页表项
   for(int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
     if(pte & PTE_V) {
       uint64 child = PTE2PA(pte);
       printf("||idx: %d: pa: %p, flags: ----\n", i, child);
-      // If this PTE points to a lower-level page table (not a leaf)
+      // 非叶子节点
       if((pte & (PTE_R|PTE_W|PTE_X)) == 0) {
-        // Recursively print the next level page table
         for(int j = 0; j < 512; j++){
           pte_t pte2 = ((pagetable_t)child)[j];
           if(pte2 & PTE_V) {
             uint64 child2 = PTE2PA(pte2);
             printf("||  ||idx: %d: pa: %p, flags: ----\n", j, child2);
-            // If this PTE points to a lower-level page table (not a leaf)
+            // 非叶子节点
             if((pte2 & (PTE_R|PTE_W|PTE_X)) == 0) {
-              // Print the third level page table
               for(int k = 0; k < 512; k++){
                 pte_t pte3 = ((pagetable_t)child2)[k];
                 uint64 va = ((uint64)i << PXSHIFT(2)) | ((uint64)j << PXSHIFT(1)) | ((uint64)k << PXSHIFT(0));

@@ -106,7 +106,7 @@ found:
     return 0;
   }
 
-  // Create a new kernel page table for the process
+  // 创建内核页表
   p->k_pagetable = proc_kvminit();
   if (p->k_pagetable == 0) {
     kfree((void*)p->trapframe);
@@ -114,7 +114,7 @@ found:
     return 0;
   }
 
-  // Map the kernel stack to the process's kernel page table
+  // 将内核栈映射到内核页表
   if (mappages(p->k_pagetable, p->kstack, PGSIZE, p->kstack_pa, PTE_R | PTE_W) != 0) {
     freewalk(p->k_pagetable);
     kfree((void*)p->trapframe);

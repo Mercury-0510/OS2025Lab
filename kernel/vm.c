@@ -64,6 +64,7 @@ void kvminithart() {
 //   21..29 -- 9 bits of level-1 index.
 //   12..20 -- 9 bits of level-0 index.
 //    0..11 -- 12 bits of byte offset within the page.
+// 返回对应页表项的地址
 pte_t *walk(pagetable_t pagetable, uint64 va, int alloc) {
   if (va >= MAXVA) panic("walk");
 
@@ -124,6 +125,7 @@ uint64 kvmpa(uint64 va) {
 // physical addresses starting at pa. va and size might not
 // be page-aligned. Returns 0 on success, -1 if walk() couldn't
 // allocate a needed page-table page.
+// 逐项映射到页表
 int mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm) {
   uint64 a, last;
   pte_t *pte;
@@ -243,7 +245,7 @@ void freewalk(pagetable_t pagetable) {
   kfree((void *)pagetable);
 }
 
-// 保存叶子节点
+// 释放页表映射，但保存叶子节点
 void freewalk_keep_pages(pagetable_t pagetable) {
   for (int i = 0; i < 512; i++) {
     pte_t pte = pagetable[i];
@@ -395,7 +397,7 @@ int test_pagetable() {
   return satp != gsatp;
 }
 
-// 为进程创建独立的内核页表（任务二）
+// 为进程创建独立的内核页表
 pagetable_t proc_kvminit() {
   pagetable_t pagetable;
 
