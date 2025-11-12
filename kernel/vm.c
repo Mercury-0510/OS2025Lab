@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -250,10 +252,17 @@ void freewalk_keep_pages(pagetable_t pagetable) {
   for (int i = 0; i < 512; i++) {
     pte_t pte = pagetable[i];
     if ((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0) {
-      uint64 child = PTE2PA(pte);
+      // 指向页表
+      // 若为用户映射空间则不递归清理所指向的叶子页表
+      if(pte & SYNC_TAG) {
+        pagetable[i] = 0;
+        continue;
+      }
+      uint64 child = PTE2PA(pte);  
       freewalk_keep_pages((pagetable_t)child);
       pagetable[i] = 0;
     } else if (pte & PTE_V) {
+      // 指向页
       pagetable[i] = 0;
     }
   }
@@ -333,21 +342,12 @@ int copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len) {
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
 int copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len) {
-  uint64 n, va0, pa0;
+  int ret;
+  w_sstatus(r_sstatus() | SSTATUS_SUM);
+  ret = copyin_new(pagetable, dst, srcva, len);
+  w_sstatus(r_sstatus() & ~SSTATUS_SUM);
 
-  while (len > 0) {
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if (pa0 == 0) return -1;
-    n = PGSIZE - (srcva - va0);
-    if (n > len) n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
-
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
-  return 0;
+  return ret;
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -355,37 +355,50 @@ int copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len) {
 // until a '\0', or max.
 // Return 0 on success, -1 on error.
 int copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max) {
-  uint64 n, va0, pa0;
-  int got_null = 0;
+  int ret;
 
-  while (got_null == 0 && max > 0) {
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if (pa0 == 0) return -1;
-    n = PGSIZE - (srcva - va0);
-    if (n > max) n = max;
+  w_sstatus(r_sstatus() | SSTATUS_SUM);
+  ret = copyinstr_new(pagetable, dst, srcva, max);
+  w_sstatus(r_sstatus() & ~SSTATUS_SUM);
 
-    char *p = (char *)(pa0 + (srcva - va0));
-    while (n > 0) {
-      if (*p == '\0') {
-        *dst = '\0';
-        got_null = 1;
-        break;
-      } else {
-        *dst = *p;
-      }
-      --n;
-      --max;
-      p++;
-      dst++;
-    }
+  return ret;
+}
 
-    srcva = va0 + PGSIZE;
+// 将用户页表映射到内核页表中
+void sync_pagetable(struct proc *p) {
+  pagetable_t user_pagetable = p->pagetable;
+  pagetable_t kernel_pagetable = p->k_pagetable;
+
+  // 获取L2[0]指向的L1页表
+  pagetable_t user_l1_table = 0;
+  pagetable_t kernel_l1_table = 0;
+  // 如果用户页表的L2[0]有效，获取其L1页表
+  if (user_pagetable[0] & PTE_V) {
+    user_l1_table = (pagetable_t)PTE2PA(user_pagetable[0]);
   }
-  if (got_null) {
-    return 0;
-  } else {
-    return -1;
+
+  // 如果内核页表的L2[0]有效，获取其L1页表
+  if (kernel_pagetable[0] & PTE_V) {
+    kernel_l1_table = (pagetable_t)PTE2PA(kernel_pagetable[0]);
+  }
+
+  // 清理内核页表中用户空间的映射 (0x0 - 192MB)
+  // 用户地址空间范围是 0x0 到 0xC000000 (192MB), 由96个L1页表项控制
+  if (kernel_l1_table) {
+    for (int i = 0; i < 96; i++) {
+      // 清除L1页表项中对应用户空间的映射
+      kernel_l1_table[i] = 0;
+    }
+  }
+
+  // 将用户页表的L1页表项复制到内核页表中
+  if (user_l1_table && kernel_l1_table) {
+    for (int i = 0; i < 96; i++) {
+      if (user_l1_table[i] != 0) {
+        // 复制用户页表的L1页表项到内核页表，打上SYNC映射标识（第8位）
+        kernel_l1_table[i] = user_l1_table[i] | SYNC_TAG;
+      }
+    }
   }
 }
 

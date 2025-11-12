@@ -97,6 +97,10 @@ int exec(char *path, char **argv) {
   p->sz = sz;
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp;          // initial stack pointer
+
+  // 同步页表到内核页表
+  sync_pagetable(p);
+
   proc_freepagetable(oldpagetable, oldsz);
 
   if(p->pid == 1)

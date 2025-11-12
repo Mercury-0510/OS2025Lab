@@ -224,6 +224,9 @@ void userinit(void) {
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
+  // 同步页表到内核页表
+  sync_pagetable(p);
+
   p->state = RUNNABLE;
 
   release(&p->lock);
@@ -244,6 +247,9 @@ int growproc(int n) {
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz;
+  // 同步页表到内核页表
+  sync_pagetable(p);
+
   return 0;
 }
 
@@ -266,6 +272,9 @@ int fork(void) {
     return -1;
   }
   np->sz = p->sz;
+
+  // 同步子进程的页表到内核页表
+  sync_pagetable(np);
 
   np->parent = p;
 
