@@ -387,17 +387,19 @@ void sync_pagetable(struct proc *p) {
   // 用户地址空间范围是 0x0 到 0xC000000 (192MB), 由96个L1页表项控制
   if (kernel_l1_table) {
     for (int i = 0; i < 96; i++) {
-      // 清除L1页表项中对应用户空间的映射
-      kernel_l1_table[i] = 0;
+      if (kernel_l1_table[i] & SYNC_TAG) {
+        kernel_l1_table[i] = 0;
+      }
     }
   }
 
-  // 将用户页表的L1页表项复制到内核页表中
+  // 将用户页表的L1页表项复制到内核页表中（仅复制非零项），并打上 SYNC_TAG
   if (user_l1_table && kernel_l1_table) {
     for (int i = 0; i < 96; i++) {
       if (user_l1_table[i] != 0) {
-        // 复制用户页表的L1页表项到内核页表，打上SYNC映射标识（第8位）
-        kernel_l1_table[i] = user_l1_table[i] | SYNC_TAG;
+        if (kernel_l1_table[i] == 0 || (kernel_l1_table[i] & SYNC_TAG)) {
+          kernel_l1_table[i] = user_l1_table[i] | SYNC_TAG;
+        }
       }
     }
   }
@@ -425,6 +427,9 @@ pagetable_t proc_kvminit() {
   if (mappages(pagetable, VIRTIO0, PGSIZE, VIRTIO0, PTE_R | PTE_W) != 0)
     goto err;
 
+  if (mappages(pagetable, CLINT, 0x10000, CLINT, PTE_R | PTE_W) != 0)
+    goto err;
+
   if (mappages(pagetable, PLIC, 0x400000, PLIC, PTE_R | PTE_W) != 0)
     goto err;
 
@@ -440,6 +445,6 @@ pagetable_t proc_kvminit() {
   return pagetable;
 
 err:
-  freewalk(pagetable);
+  freewalk_keep_pages(pagetable);
   return 0;
 }

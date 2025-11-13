@@ -116,7 +116,7 @@ found:
 
   // 将内核栈映射到内核页表
   if (mappages(p->k_pagetable, p->kstack, PGSIZE, p->kstack_pa, PTE_R | PTE_W) != 0) {
-    freewalk(p->k_pagetable);
+    freewalk_keep_pages(p->k_pagetable);
     kfree((void*)p->trapframe);
     release(&p->lock);
     return 0;
@@ -125,7 +125,7 @@ found:
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if (p->pagetable == 0) {
-    freewalk(p->k_pagetable);
+    freewalk_keep_pages(p->k_pagetable);
     kfree((void*)p->trapframe);
     release(&p->lock);
     return 0;
