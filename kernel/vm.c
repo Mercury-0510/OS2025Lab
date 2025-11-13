@@ -372,13 +372,14 @@ void sync_pagetable(struct proc *p) {
   // 获取L2[0]指向的L1页表
   pagetable_t user_l1_table = 0;
   pagetable_t kernel_l1_table = 0;
+
   // 如果用户页表的L2[0]有效，获取其L1页表
-  if (user_pagetable[0] & PTE_V) {
+  if ((user_pagetable[0] & PTE_V) && (user_pagetable[0] & (PTE_R | PTE_W | PTE_X))==0) {
     user_l1_table = (pagetable_t)PTE2PA(user_pagetable[0]);
   }
 
   // 如果内核页表的L2[0]有效，获取其L1页表
-  if (kernel_pagetable[0] & PTE_V) {
+  if ((kernel_pagetable[0] & PTE_V) && (kernel_pagetable[0] & (PTE_R | PTE_W | PTE_X))==0) {
     kernel_l1_table = (pagetable_t)PTE2PA(kernel_pagetable[0]);
   }
 
