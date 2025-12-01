@@ -16,7 +16,7 @@ static const struct fuse_opt option_spec[] = {		/* 用于FUSE文件系统解析�
 };
 
 struct custom_options newfs_options;			 /* 全局选项 */
-struct newfs_super super; 
+struct newfs_super    super; 
 /******************************************************************************
 * SECTION: FUSE操作定义
 *******************************************************************************/
@@ -50,10 +50,11 @@ static struct fuse_operations operations = {
  */
 void* newfs_init(struct fuse_conn_info * conn_info) {
 	/* TODO: 在这里进行挂载 */
-
-	/* 下面是一个控制设备的示例 */
-	super.fd = ddriver_open(newfs_options.device);
-	
+	if (newfs_mount(newfs_options) != NFS_ERROR_NONE) {
+        NFS_DBG("[%s] mount error\n", __func__);
+		fuse_exit(fuse_get_context()->fuse);
+		return NULL;
+	} 	
 	return NULL;
 }
 

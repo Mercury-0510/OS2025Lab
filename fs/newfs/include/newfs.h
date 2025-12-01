@@ -18,6 +18,26 @@
 #define NEWFS_DEFAULT_PERM    0777   /* 全权限打开 */
 
 /******************************************************************************
+* SECTION: macro debug
+*******************************************************************************/
+
+#define NFS_DBG(fmt, ...) do { printf("NFS_DBG: " fmt, ##__VA_ARGS__); } while(0) 
+
+/******************************************************************************
+* SECTION: newfs_utils.c
+*******************************************************************************/
+
+int 			    newfs_mount(struct custom_options options);
+
+int 			    newfs_driver_read(int offset, void *out_content, int size);
+
+int 			    newfs_driver_write(int offset, void *in_content, int size);
+
+struct newfs_inode* newfs_alloc_inode(struct newfs_dentry * dentry);
+
+int 			    newfs_sync_inode(struct newfs_inode *inode);
+
+/******************************************************************************
 * SECTION: newfs.c
 *******************************************************************************/
 void* 			   newfs_init(struct fuse_conn_info *);
