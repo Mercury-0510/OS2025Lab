@@ -1,0 +1,4 @@
+fs/newfs/build/
+build/
+fs/newfs/tests/ddriver_dump
+.vscode/settings.json

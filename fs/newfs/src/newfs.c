@@ -66,9 +66,11 @@ void* newfs_init(struct fuse_conn_info * conn_info) {
  */
 void newfs_destroy(void* p) {
 	/* TODO: 在这里进行卸载 */
-	
-	ddriver_close(super.fd);
-
+	if (newfs_umount() != NFS_ERROR_NONE) {
+		NFS_DBG("[%s] unmount error\n", __func__);
+		fuse_exit(fuse_get_context()->fuse);
+		return;
+	}
 	return;
 }
 
@@ -81,7 +83,28 @@ void newfs_destroy(void* p) {
  */
 int newfs_mkdir(const char* path, mode_t mode) {
 	/* TODO: 解析路径，创建目录 */
-	return 0;
+	(void)mode;
+	boolean is_find, is_root;
+	char* name;
+	struct newfs_dentry* last_dentry = newfs_lookup(path, &is_find, &is_root);
+	struct newfs_dentry* dentry;
+	struct newfs_inode*  inode;
+
+	if (is_find) {
+		return -NFS_ERROR_EXISTS;
+	}
+
+	if (NFS_IS_REG(last_dentry->inode)) {
+		return -NFS_ERROR_UNSUPPORTED;
+	}
+
+	name  = newfs_get_fname(path);
+	dentry = new_dentry(name, DIR); 
+	dentry->parent = last_dentry;
+	inode  = newfs_alloc_inode(dentry);
+	newfs_alloc_dentry(last_dentry->inode, dentry);
+	
+	return NFS_ERROR_NONE;
 }
 
 /**
@@ -93,7 +116,38 @@ int newfs_mkdir(const char* path, mode_t mode) {
  */
 int newfs_getattr(const char* path, struct stat * newfs_stat) {
 	/* TODO: 解析路径，获取Inode，填充newfs_stat，可参考/fs/simplefs/sfs.c的sfs_getattr()函数实现 */
-	return 0;
+	boolean	is_find, is_root;
+	struct newfs_dentry* dentry = newfs_lookup(path, &is_find, &is_root);
+	if (is_find == FALSE) {
+		return -NFS_ERROR_NOTFOUND;
+	}
+
+	if (NFS_IS_DIR(dentry->inode)) {
+		newfs_stat->st_mode = S_IFDIR | NFS_DEFAULT_PERM;
+		newfs_stat->st_size = dentry->inode->dir_cnt * NFS_DENTRY_D_SZ();
+	}
+	else if (NFS_IS_REG(dentry->inode)) {
+		newfs_stat->st_mode = S_IFREG | NFS_DEFAULT_PERM;
+		newfs_stat->st_size = dentry->inode->size;
+	}
+	else if (NFS_IS_SYM_LINK(dentry->inode)) {
+		newfs_stat->st_mode = S_IFLNK | NFS_DEFAULT_PERM;
+		newfs_stat->st_size = dentry->inode->size;
+	}
+
+	newfs_stat->st_nlink = 1;
+	newfs_stat->st_uid 	 = getuid();
+	newfs_stat->st_gid 	 = getgid();
+	newfs_stat->st_atime   = time(NULL);
+	newfs_stat->st_mtime   = time(NULL);
+	newfs_stat->st_blksize = NFS_LOGIC_SZ();
+
+	if (is_root) {
+		newfs_stat->st_size	= super.sz_usage; 
+		newfs_stat->st_blocks = NFS_DISK_SZ() / NFS_LOGIC_SZ();
+		newfs_stat->st_nlink  = 2;		/* !特殊，根目录link数为2 */
+	}
+	return NFS_ERROR_NONE;
 }
 
 /**
@@ -117,7 +171,21 @@ int newfs_getattr(const char* path, struct stat * newfs_stat) {
 int newfs_readdir(const char * path, void * buf, fuse_fill_dir_t filler, off_t offset,
 			    		 struct fuse_file_info * fi) {
     /* TODO: 解析路径，获取目录的Inode，并读取目录项，利用filler填充到buf，可参考/fs/simplefs/sfs.c的sfs_readdir()函数实现 */
-    return 0;
+	boolean	is_find, is_root;
+	int		cur_dir = offset;
+
+	struct newfs_dentry* dentry = newfs_lookup(path, &is_find, &is_root);
+	struct newfs_dentry* sub_dentry;
+	struct newfs_inode* inode;
+	if (is_find) {
+		inode = dentry->inode;
+		sub_dentry = newfs_get_dentry(inode, cur_dir);
+		if (sub_dentry) {
+			filler(buf, sub_dentry->name, NULL, ++offset);
+		}
+		return NFS_ERROR_NONE;
+	}
+	return -NFS_ERROR_NOTFOUND;
 }
 
 /**
@@ -130,7 +198,33 @@ int newfs_readdir(const char * path, void * buf, fuse_fill_dir_t filler, off_t o
  */
 int newfs_mknod(const char* path, mode_t mode, dev_t dev) {
 	/* TODO: 解析路径，并创建相应的文件 */
-	return 0;
+	boolean	is_find, is_root;
+	
+	struct newfs_dentry* last_dentry = newfs_lookup(path, &is_find, &is_root);
+	struct newfs_dentry* dentry;
+	struct newfs_inode* inode;
+	char* name;
+	
+	if (is_find == TRUE) {
+		return -NFS_ERROR_EXISTS;
+	}
+
+	name = newfs_get_fname(path);
+	
+	if (S_ISREG(mode)) {
+		dentry = new_dentry(name, REG_FILE);
+	}
+	else if (S_ISDIR(mode)) {
+		dentry = new_dentry(name, DIR);
+	}
+	else {
+		dentry = new_dentry(name, REG_FILE);
+	}
+	dentry->parent = last_dentry;
+	inode = newfs_alloc_inode(dentry);
+	newfs_alloc_dentry(last_dentry->inode, dentry);
+
+	return NFS_ERROR_NONE;
 }
 
 /**

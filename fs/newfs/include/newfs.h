@@ -27,15 +27,29 @@
 * SECTION: newfs_utils.c
 *******************************************************************************/
 
-int 			    newfs_mount(struct custom_options options);
+int 			     newfs_mount(struct custom_options options);
 
-int 			    newfs_driver_read(int offset, void *out_content, int size);
+int 			     newfs_driver_read(int offset, void *out_content, int size);
 
-int 			    newfs_driver_write(int offset, void *in_content, int size);
+int 			     newfs_driver_write(int offset, void *in_content, int size);
 
-struct newfs_inode* newfs_alloc_inode(struct newfs_dentry * dentry);
+struct newfs_inode*  newfs_alloc_inode(struct newfs_dentry * dentry);
 
-int 			    newfs_sync_inode(struct newfs_inode *inode);
+int 			     newfs_sync_inode(struct newfs_inode *inode);
+
+struct newfs_inode*  newfs_read_inode(struct newfs_dentry *dentry, int ino);
+
+int 				 newfs_alloc_dentry(struct newfs_inode *inode, struct newfs_dentry *dentry);
+
+int 				 newfs_umount();
+
+struct newfs_dentry* newfs_lookup(const char *path, boolean *is_find, boolean *is_root);
+
+char*				 newfs_get_fname(const char *path);
+
+struct newfs_dentry* newfs_get_dentry(struct newfs_inode *inode, int dir);
+
+int 				 newfs_calc_lvl(const char *path);
 
 /******************************************************************************
 * SECTION: newfs.c

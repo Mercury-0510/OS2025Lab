@@ -33,8 +33,10 @@
 
 #define NFS_ERROR_NONE          0
 #define NFS_ERROR_NOSPACE       ENOSPC
-#define NFS_ASSIGN_NAME(psfs_dentry, _name)\ 
-                        memcpy(psfs_dentry->name, _name, strlen(_name))
+#define NFS_ERROR_EXISTS        EEXIST
+#define NFS_ERROR_NOTFOUND      ENOENT
+#define NFS_ERROR_UNSUPPORTED   ENXIO
+#define NFS_ASSIGN_NAME(psfs_dentry, _name) memcpy(psfs_dentry->name, _name, strlen(_name))
 #define NFS_ERROR_IO            EIO
 
 #define NFS_IS_DIR(pinode)              (pinode->dentry->type == DIR)
@@ -51,7 +53,6 @@ typedef enum file_type {
 
 struct custom_options {
 	const char*          device;
-    boolean              showhelp;
 };
 
 struct newfs_super {
@@ -66,11 +67,13 @@ struct newfs_super {
     int                  sz_usage;
     
     int                  max_ino;
+
     uint8_t*             map_inode;
-    uint8_t*             map_data;
     int                  map_inode_blks;
-    int                  map_data_blks;
     int                  map_inode_offset;
+
+    uint8_t*             map_data;
+    int                  map_data_blks;
     int                  map_data_offset;
     
     int                  inode_offset;
@@ -126,6 +129,7 @@ struct newfs_super_d
     uint32_t           sz_usage;
     
     uint32_t           max_ino;
+
     uint32_t           map_inode_blks;
     uint32_t           map_inode_offset;
 
